@@ -322,7 +322,7 @@ function launch:ApplyUpdate(mode)
 	if mode == "basic" then
 		-- Need to revert to the basic environment to fully apply the update
 		LoadModule("UpdateApply", "Update/opFile.txt")
-		SpawnProcess(GetRuntimePath()..'/Update', 'UpdateApply.lua Update/opFileRuntime.txt')
+		SpawnProcess(GetRuntimePath()..'/Updater', 'UpdateApply.lua Update/opFileRuntime.txt')
 		Exit()
 	elseif mode == "normal" then
 		-- Update can be applied while normal environment is running
@@ -369,7 +369,7 @@ end
 
 function launch:ShowErrMsg(fmt, ...)
 	if not self.promptMsg then
-		local version = self.versionNumber and 
+		local version = self.versionNumber and
 			"^8v"..self.versionNumber..(self.versionBranch and " "..self.versionBranch or "")
 			or ""
 		self:ShowPrompt(1, 0, 0, "^1Error:\n\n^0"..string.format(fmt, ...).."\n"..version.."\n^0Press Enter/Escape to dismiss, or F5 to restart the application.\nPress CTRL + C to copy error text.")
