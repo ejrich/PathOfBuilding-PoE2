@@ -94,6 +94,7 @@ directiveTable.base = function(state, args, out)
 	if displayName:find("DNT") then
 		return
 	end
+	local hidden = (state.forceHide and not baseTypeId:match("Talisman") and not state.forceShow) or baseTypeId:find("Unique", 1, true) or displayName:find("Runemastered", 1, true)
 	out:write('itemBases["', displayName, '"] = {\n')
 	out:write('\ttype = "', state.type, '",\n')
 	if state.subType and #state.subType > 0 then
@@ -109,7 +110,7 @@ directiveTable.base = function(state, args, out)
 	if itemSpirit then
 		out:write('\tspirit = ', itemSpirit.Value, ',\n')
 	end
-	if state.forceHide and not baseTypeId:match("Talisman") and not state.forceShow then
+	if hidden then
 		out:write('\thidden = true,\n')
 	end
 	if state.socketLimit then
@@ -122,6 +123,13 @@ directiveTable.base = function(state, args, out)
 	end
 	for _, tag in ipairs(baseItemType.Tags) do
 		combinedTags[tag.Id] = true
+	end
+	-- Genesis Tree tags are granted at runtime and omitted from BaseItemTypes,
+	-- so the genesis_tree_* mods (belt/ring caster and minion affixes) match nothing.
+	-- Re-add them; each mod's own belt/ring exclusion routes it to the correct slot.
+	if combinedTags.belt or combinedTags.ring then
+		combinedTags.genesis_tree_minion = true
+		combinedTags.genesis_tree_caster = true
 	end
 	local combinedTagList = { }
 	for tag in pairsSortByKey(combinedTags) do
@@ -339,7 +347,7 @@ directiveTable.base = function(state, args, out)
 			reqLevel = baseItemType.DropLevel
 		end
 	end
-	if state.type == "Flask" or state.type == "SoulCore" or state.type == "Rune" or state.type == "Charm" then
+	if state.type == "Flask" or state.type == "Charm" then
 		if baseItemType.DropLevel > 2 then
 			reqLevel = baseItemType.DropLevel
 		end
@@ -364,7 +372,7 @@ directiveTable.base = function(state, args, out)
 	end
 	out:write('},\n}\n')
 	
-	if not (state.forceHide and not baseTypeId:match("Talisman") and not state.forceShow) then
+	if not hidden then
 		bases[state.type] = bases[state.type] or {}
 		local subtype = state.subType and #state.subType and state.subType or ""
 		if not bases[state.type][subtype] or itemValueSum > bases[state.type][subtype][2] then
