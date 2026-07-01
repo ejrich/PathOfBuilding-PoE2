@@ -78,12 +78,20 @@ def create_manifest(version: str | None = None, replace: bool = False) -> None:
     for part in config.sections():
         url = base_url + config[part]["path"]
         url_with_trailing_slash = url if url.endswith("/") else url + "/"
-        attributes = (
-            {"part": part, "platform": "win32", "url": url_with_trailing_slash}
-            if part == "runtime"
-            else {"part": part, "url": url_with_trailing_slash}
-        )
-        parts.append(attributes)
+        if part == "runtime":
+            win32_attributes = (
+                {"part": part, "platform": "win32", "url": url_with_trailing_slash}
+            )
+            parts.append(win32_attributes)
+            linux_attributes = (
+                {"part": part, "platform": "linux", "url": url_with_trailing_slash}
+            )
+            parts.append(linux_attributes)
+        else:
+            attributes = (
+                {"part": part, "url": url_with_trailing_slash}
+            )
+            parts.append(attributes)
 
     files: list[dict[str, str]] = []
     for section in config.sections():
@@ -92,7 +100,9 @@ def create_manifest(version: str | None = None, replace: bool = False) -> None:
         exclude_files = _parse_list_option(config, section, "exclude-files")
         exclude_dirs = _parse_list_option(config, section, "exclude-directories")
         source = pathlib.Path(config[section]["path"])
-        for path in source.glob("**/*.*"):
+        for path in source.glob("**/*"):
+            if path.is_dir():
+                continue
             if include_files and not _exclude_file(include_files, path):
                 continue
             if include_dirs and not _exclude_directory(include_dirs, path):
@@ -108,10 +118,13 @@ def create_manifest(version: str | None = None, replace: bool = False) -> None:
             sha1 = hashlib.sha1(data).hexdigest()
             name = path.relative_to(config[section]["path"]).as_posix()
             attributes = (
-                {"name": name, "part": section, "runtime": "win32", "sha1": sha1}
-                if path.suffix in [".dll", ".exe"]
-                else {"name": name, "part": section, "sha1": sha1}
+                {"name": name, "part": section, "sha1": sha1}
             )
+            if path.suffix in [".dll", ".exe"]:
+                attributes = {"name": name, "part": section, "runtime": "win32", "sha1": sha1}
+            elif path.suffix in [".so", ""] and section == "runtime":
+                attributes = {"name": name, "part": section, "runtime": "linux", "sha1": sha1}
+
             files.append(attributes)
 
     files.sort(key=lambda attr: (attr["part"], _alphanumeric(attr["name"])))

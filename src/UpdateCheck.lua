@@ -34,7 +34,7 @@ local function downloadFileText(source, file)
 			ConPrintf("SSL verification disabled")
 		end
 		easy:setopt_writefunction(function(data)
-			text = text..data 
+			text = text..data
 			return true
 		end)
 		local _, error = easy:perform()
@@ -100,6 +100,7 @@ local localPlatform, localBranch
 local localFiles = { }
 local localManXML = xml.LoadXMLFile(scriptPath.."/manifest.xml")
 local localSource
+local localSources = { }
 local runtimeExecutable
 if localManXML and localManXML[1].elem == "PoBVersion" then
 	for _, node in ipairs(localManXML[1]) do
@@ -109,6 +110,10 @@ if localManXML and localManXML[1].elem == "PoBVersion" then
 				localPlatform = node.attrib.platform
 				localBranch = node.attrib.branch
 			elseif node.elem == "Source" then
+				if not localSources[node.attrib.part] then
+					localSources[node.attrib.part] = { }
+				end
+				localSources[node.attrib.part][node.attrib.platform or "any"] = node.attrib.url
 				if node.attrib.part == "default" then
 					localSource = node.attrib.url
 				end
@@ -120,8 +125,8 @@ if localManXML and localManXML[1].elem == "PoBVersion" then
 				else
 					fullPath = scriptPath .. "/" .. node.attrib.name
 				end
-				localFiles[node.attrib.name] = { sha1 = node.attrib.sha1, part = node.attrib.part, platform = node.attrib.platform, fullPath = fullPath }
-				if node.attrib.part == "runtime" and node.attrib.name:match("Path of Building") then
+				localFiles[node.attrib.name] = { sha1 = node.attrib.sha1, part = node.attrib.part, platform = node.attrib.platform, runtime = node.attrib.runtime, fullPath = fullPath }
+				if node.attrib.part == "runtime" and node.attrib.runtime == localPlatform and node.attrib.name:match("Path of Building") then
 					runtimeExecutable = fullPath
 				end
 			end
@@ -155,14 +160,14 @@ if remoteManXML and remoteManXML[1].elem == "PoBVersion" then
 				end
 				remoteSources[node.attrib.part][node.attrib.platform or "any"] = node.attrib.url
 			elseif node.elem == "File" then
-				if not node.attrib.platform or node.attrib.platform == localPlatform then
+				if not node.attrib.runtime or node.attrib.runtime == localPlatform then
 					local fullPath
 					if node.attrib.part == "runtime" then
 						fullPath = runtimePath .. "/" .. node.attrib.name
 					else
 						fullPath = scriptPath .. "/" .. node.attrib.name
 					end
-					remoteFiles[node.attrib.name] = { sha1 = node.attrib.sha1, part = node.attrib.part, platform = node.attrib.platform, fullPath = fullPath }
+					remoteFiles[node.attrib.name] = { sha1 = node.attrib.sha1, part = node.attrib.part, platform = node.attrib.platform, runtime = node.attrib.runtime, fullPath = fullPath }
 				end
 			end
 		end
@@ -177,20 +182,23 @@ end
 local updateFiles = { }
 for name, data in pairs(remoteFiles) do
 	data.name = name
-	local sanitizedName = name:gsub("{space}", " ")
-	if (not localFiles[name] or localFiles[name].sha1 ~= data.sha1) and (not localFiles[sanitizedName] or localFiles[sanitizedName].sha1 ~= data.sha1) then
-		table.insert(updateFiles, data)
-	elseif localFiles[name] then
-		local file = io.open(localFiles[name].fullPath, "rb")
-		if not file then
-			ConPrintf("Warning: '%s' doesn't exist, it will be re-downloaded", data.name)
+	-- @Hack to not overwrite the changes to these files from the main repo
+    if name ~= "UpdateCheck.lua" and name ~= "Launch.lua" then
+		local sanitizedName = name:gsub("{space}", " ")
+		if (not localFiles[name] or localFiles[name].sha1 ~= data.sha1) and (not localFiles[sanitizedName] or localFiles[sanitizedName].sha1 ~= data.sha1) then
 			table.insert(updateFiles, data)
-		else
-			local content = file:read("*a")
-			file:close()
-			if data.sha1 ~= sha1(content) and data.sha1 ~= sha1(content:gsub("\n", "\r\n")) then
-				ConPrintf("Warning: Integrity check on '%s' failed, it will be replaced", data.name)
+		elseif localFiles[name] then
+			local file = io.open(localFiles[name].fullPath, "rb")
+			if not file then
+				ConPrintf("Warning: '%s' doesn't exist, it will be re-downloaded", data.name)
 				table.insert(updateFiles, data)
+			else
+				local content = file:read("*a")
+				file:close()
+				if data.sha1 ~= sha1(content) and data.sha1 ~= sha1(content:gsub("\n", "\r\n")) then
+					ConPrintf("Warning: Integrity check on '%s' failed, it will be replaced", data.name)
+					table.insert(updateFiles, data)
+				end
 			end
 		end
 	end
@@ -199,11 +207,11 @@ local deleteFiles = { }
 for name, data in pairs(localFiles) do
 	data.name = name
 	local unSanitizedName = name:gsub(" ", "{space}")
-	if not remoteFiles[name] and not remoteFiles[unSanitizedName] then
+	if not remoteFiles[name] and not remoteFiles[unSanitizedName] and data.runtime ~= "linux" then -- @Hack to not delete linux runtime files
 		table.insert(deleteFiles, data)
 	end
 end
-	
+
 if #updateFiles == 0 and #deleteFiles == 0 then
 	ConPrintf("No update available.")
 	return "none"
@@ -289,14 +297,22 @@ end
 -- Create new manifest
 localManXML = { elem = "PoBVersion" }
 table.insert(localManXML, { elem = "Version", attrib = { number = remoteVer, platform = localPlatform, branch = localBranch } })
-for part, platforms in pairs(remoteSources) do
+-- @Hack to not overwrite the linux source
+-- for part, platforms in pairs(remoteSources) do
+for part, platforms in pairs(localSources) do
 	for platform, url in pairs(platforms) do
 		table.insert(localManXML, { elem = "Source", attrib = { part = part, platform = platform ~= "any" and platform, url = url } })
 	end
 end
 for name, data in pairs(remoteFiles) do
-	table.insert(localManXML, { elem = "File", attrib = { name = data.name, sha1 = data.sha1, part = data.part, platform = data.platform } })
-end 
+	table.insert(localManXML, { elem = "File", attrib = { name = data.name, sha1 = data.sha1, part = data.part, platform = data.platform, runtime = data.runtime } })
+end
+-- @Hack to include the linux runtime files
+for name, data in pairs(localFiles) do
+    if data.runtime == "linux" then
+        table.insert(localManXML, { elem = "File", attrib = { name = data.name, sha1 = data.sha1, part = data.part, platform = data.platform, runtime = data.runtime } })
+    end
+end
 xml.SaveXMLFile(localManXML, scriptPath.."/Update/manifest.xml")
 
 -- Build list of operations to apply the update
