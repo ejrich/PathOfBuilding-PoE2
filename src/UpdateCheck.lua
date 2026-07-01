@@ -230,7 +230,9 @@ for index, data in ipairs(updateFiles) do
 	if UpdateProgress then
 		UpdateProgress("Downloading %d/%d", index, #updateFiles)
 	end
-	local partSources = remoteSources[data.part]
+	-- @Hack to get linux working
+	-- local partSources = remoteSources[data.part]
+	local partSources = localSources[data.part]
 	local source = partSources[localPlatform] or partSources["any"]
 	source = source:gsub("{branch}", localBranch)
 	local fileName = scriptPath.."/Update/"..data.name:gsub("[\\/]","{slash}")
